@@ -1,6 +1,6 @@
 /*
  * This file is part of The Technic Launcher Version 3.
- * Copyright (C) 2013 Syndicate, LLC
+ * Copyright ©2015 Syndicate, LLC
  *
  * The Technic Launcher is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -44,6 +44,12 @@ public class TechnicSettings {
     private String directory;
     private String javaArgs;
     private int latestNewsArticle;
+    private boolean launchToModpacks;
+    private String javaVersion = "default";
+    /**
+     * 64 bit if true, 32 bit if false
+     */
+    private boolean javaBitness = true;
 
     private String launcherSettingsVersion = "0";
 
@@ -92,9 +98,28 @@ public class TechnicSettings {
         save();
     }
 
+    public String getJavaVersion() { return javaVersion; }
+    public void setJavaVersion(String javaVersion) {
+        this.javaVersion = javaVersion;
+        save();
+    }
+
+    public boolean getJavaBitness() { return javaBitness; }
+    public void setJavaBitness(boolean javaBitness) {
+        this.javaBitness = javaBitness;
+        save();
+    }
+
     public boolean getShowConsole() { return showConsole; }
     public void setShowConsole(boolean showConsole) {
         this.showConsole = showConsole;
+        save();
+    }
+
+    //Whether to launch into the modpacks tab directly or launch to the discover tab
+    public boolean getLaunchToModpacks() { return launchToModpacks; }
+    public void setLaunchToModpacks(boolean launchToModpacks) {
+        this.launchToModpacks = launchToModpacks;
         save();
     }
 

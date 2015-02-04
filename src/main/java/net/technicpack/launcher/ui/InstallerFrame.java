@@ -1,6 +1,6 @@
 /*
  * This file is part of The Technic Launcher Version 3.
- * Copyright (C) 2013 Syndicate, LLC
+ * Copyright ©2015 Syndicate, LLC
  *
  * The Technic Launcher is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,13 +19,15 @@
 package net.technicpack.launcher.ui;
 
 import net.technicpack.autoupdate.Relauncher;
+import net.technicpack.autoupdate.tasks.MoveLauncherPackage;
 import net.technicpack.launcher.LauncherMain;
-import net.technicpack.launcher.settings.SettingsFactory;
+import net.technicpack.launcher.autoupdate.TechnicRelauncher;
+import net.technicpack.launcher.io.TechnicLauncherDirectories;
 import net.technicpack.launcher.settings.StartupParameters;
 import net.technicpack.launcher.settings.TechnicSettings;
+import net.technicpack.ui.controls.list.popupformatters.RoundedBorderFormatter;
 import net.technicpack.ui.controls.DraggableFrame;
 import net.technicpack.ui.controls.RoundedButton;
-import net.technicpack.ui.controls.TintablePanel;
 import net.technicpack.ui.controls.borders.RoundBorder;
 import net.technicpack.ui.controls.lang.LanguageCellRenderer;
 import net.technicpack.ui.controls.lang.LanguageCellUI;
@@ -33,10 +35,12 @@ import net.technicpack.ui.controls.tabs.SimpleTabPane;
 import net.technicpack.ui.lang.IRelocalizableResource;
 import net.technicpack.ui.lang.ResourceLoader;
 import net.technicpack.ui.listitems.LanguageItem;
+import net.technicpack.utilslib.OperatingSystem;
 import net.technicpack.utilslib.Utils;
 import org.apache.commons.io.FileUtils;
 
 import javax.swing.*;
+import javax.swing.border.LineBorder;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -75,10 +79,12 @@ public class InstallerFrame extends DraggableFrame implements IRelocalizableReso
         this.resources = resources;
         this.params = params;
         this.settings = new TechnicSettings();
-        this.settings.setFilePath(new File(SettingsFactory.getTechnicHomeDir(), "settings.json"));
+        this.settings.setFilePath(new File(OperatingSystem.getOperatingSystem().getUserDirectoryForApp("technic"), "settings.json"));
         this.settings.getTechnicRoot();
 
         addGlassPane();
+
+        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
 
         relocalize(resources);
     }
@@ -158,7 +164,7 @@ public class InstallerFrame extends DraggableFrame implements IRelocalizableReso
             @Override
             public void run() {
                 File oldSettings = settings.getFilePath();
-                File newSettings = new File(SettingsFactory.getTechnicHomeDir(), "settings.json");
+                File newSettings = new File(OperatingSystem.getOperatingSystem().getUserDirectoryForApp("technic"), "settings.json");
 
                 if (oldSettings.exists() && !oldSettings.getAbsolutePath().equals(newSettings.getAbsolutePath())) {
                     oldSettings.delete();
@@ -183,16 +189,16 @@ public class InstallerFrame extends DraggableFrame implements IRelocalizableReso
 
                 settings.setFilePath(newSettings);
 
-                if (settings.isPortable() || rootHasChanged || !standardInstallDir.getText().equals(SettingsFactory.getTechnicHomeDir().getAbsolutePath()))
+                if (settings.isPortable() || rootHasChanged || !standardInstallDir.getText().equals(OperatingSystem.getOperatingSystem().getUserDirectoryForApp("technic").getAbsolutePath()))
                     settings.installTo(standardInstallDir.getText());
                 settings.getTechnicRoot();
                 settings.setLanguageCode(((LanguageItem)standardLanguages.getSelectedItem()).getLangCode());
                 settings.save();
 
-                Relauncher relauncher = new Relauncher(null);
+                Relauncher relauncher = new TechnicRelauncher(null, settings.getBuildStream(), 0, new TechnicLauncherDirectories(settings.getTechnicRoot()), resources, params);
                 try {
-                    String currentPath = relauncher.getRunningPath(LauncherMain.class);
-                    relauncher.launch(currentPath, LauncherMain.class, params.getArgs());
+                    String currentPath = relauncher.getRunningPath();
+                    relauncher.launch(currentPath, params.getArgs());
                     System.exit(0);
                     return;
                 } catch (UnsupportedEncodingException ex) {
@@ -205,23 +211,33 @@ public class InstallerFrame extends DraggableFrame implements IRelocalizableReso
     }
 
     protected void portableInstall() {
-        final Relauncher relauncher = new Relauncher(null);
         String targetPath = null;
+        final Relauncher relauncher = new TechnicRelauncher(null, settings.getBuildStream(), 0, new TechnicLauncherDirectories(settings.getTechnicRoot()), resources, params);
         try {
-            String currentPath = relauncher.getRunningPath(LauncherMain.class);
+            String currentPath = relauncher.getRunningPath();
             String launcher = (currentPath.endsWith(".exe"))?"TechnicLauncher.exe":"TechnicLauncher.jar";
 
             targetPath = new File(portableInstallDir.getText(), launcher).getAbsolutePath();
 
             File targetExe = new File(portableInstallDir.getText(), launcher);
 
-            if (targetExe.exists() && !targetExe.delete()) {
-                JOptionPane.showMessageDialog(this, resources.getString("installer.portable.replacefailed"), resources.getString("installer.portable.replacefailtitle"), JOptionPane.ERROR_MESSAGE);
-                return;
+            if (!(new File(currentPath).equals(targetExe))) {
+                if (targetExe.exists() && !targetExe.delete()) {
+                    JOptionPane.showMessageDialog(this, resources.getString("installer.portable.replacefailed"), resources.getString("installer.portable.replacefailtitle"), JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                MoveLauncherPackage moveTask = new MoveLauncherPackage("", targetExe, relauncher);
+                moveTask.runTask(null);
             }
 
-            relauncher.replacePackage(LauncherMain.class, targetExe.getAbsolutePath());
+
         } catch (UnsupportedEncodingException ex) {
+            ex.printStackTrace();
+            return;
+        } catch (IOException ex) {
+            ex.printStackTrace();
+            return;
+        } catch (InterruptedException ex) {
             ex.printStackTrace();
             return;
         }
@@ -262,7 +278,7 @@ public class InstallerFrame extends DraggableFrame implements IRelocalizableReso
                 settings.setLanguageCode(((LanguageItem)portableLanguages.getSelectedItem()).getLangCode());
                 settings.save();
 
-                relauncher.launch(threadTargetPath, LauncherMain.class, params.getArgs());
+                relauncher.launch(threadTargetPath, params.getArgs());
                 System.exit(0);
             }
         });
@@ -315,7 +331,7 @@ public class InstallerFrame extends DraggableFrame implements IRelocalizableReso
             standardInstallDir.setBorder(new RoundBorder(LauncherFrame.COLOR_SCROLL_THUMB, 1, 10));
             standardSelectButton.setEnabled(false);
             standardSelectButton.setForeground(LauncherFrame.COLOR_GREY_TEXT);
-            standardInstallDir.setText(SettingsFactory.getTechnicHomeDir().getAbsolutePath());
+            standardInstallDir.setText(OperatingSystem.getOperatingSystem().getUserDirectoryForApp("technic").getAbsolutePath());
         }
     }
 
@@ -349,7 +365,8 @@ public class InstallerFrame extends DraggableFrame implements IRelocalizableReso
         closeButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                mainFrame.setVisible(true);
+                if (mainFrame != null)
+                    mainFrame.setVisible(true);
                 dispose();
             }
         });
@@ -407,7 +424,7 @@ public class InstallerFrame extends DraggableFrame implements IRelocalizableReso
         standardDefaultDirectory.setFont(resources.getFont(ResourceLoader.FONT_OPENSANS, 16));
         standardDefaultDirectory.setForeground(LauncherFrame.COLOR_WHITE_TEXT);
         standardDefaultDirectory.setIconTextGap(6);
-        standardDefaultDirectory.setSelected(settings.isPortable() || settings.getTechnicRoot().getAbsolutePath().equals(SettingsFactory.getTechnicHomeDir().getAbsolutePath()));
+        standardDefaultDirectory.setSelected(settings.isPortable() || settings.getTechnicRoot().getAbsolutePath().equals(OperatingSystem.getOperatingSystem().getUserDirectoryForApp("technic").getAbsolutePath()));
         standardDefaultDirectory.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -421,7 +438,7 @@ public class InstallerFrame extends DraggableFrame implements IRelocalizableReso
         installFolderLabel.setForeground(LauncherFrame.COLOR_WHITE_TEXT);
         panel.add(installFolderLabel, new GridBagConstraints(0, 3, 1, 1, 0, 0, GridBagConstraints.WEST, GridBagConstraints.NONE, new Insets(0,24,0,8), 0,0));
 
-        String installDir = SettingsFactory.getTechnicHomeDir().getAbsolutePath();
+        String installDir = OperatingSystem.getOperatingSystem().getUserDirectoryForApp("technic").getAbsolutePath();
 
         if (!settings.isPortable())
             installDir = settings.getTechnicRoot().getAbsolutePath();
@@ -457,14 +474,14 @@ public class InstallerFrame extends DraggableFrame implements IRelocalizableReso
 
         standardLanguages = new JComboBox();
         standardLanguages.addItem(new LanguageItem(ResourceLoader.DEFAULT_LOCALE, defaultLocaleText, resources));
-        for (int i = 0; i < ResourceLoader.SUPPORTED_LOCALES.length; i++) {
-            standardLanguages.addItem(new LanguageItem(resources.getCodeFromLocale(ResourceLoader.SUPPORTED_LOCALES[i]), ResourceLoader.SUPPORTED_LOCALES[i].getDisplayName(ResourceLoader.SUPPORTED_LOCALES[i]), resources.getVariant(ResourceLoader.SUPPORTED_LOCALES[i])));
+        for (int i = 0; i < LauncherMain.supportedLanguages.length; i++) {
+            standardLanguages.addItem(new LanguageItem(resources.getCodeFromLocale(LauncherMain.supportedLanguages[i]), LauncherMain.supportedLanguages[i].getDisplayName(LauncherMain.supportedLanguages[i]), resources.getVariant(LauncherMain.supportedLanguages[i])));
         }
         if (!settings.getLanguageCode().equalsIgnoreCase(ResourceLoader.DEFAULT_LOCALE)) {
             Locale loc = resources.getLocaleFromCode(settings.getLanguageCode());
 
-            for (int i = 0; i < ResourceLoader.SUPPORTED_LOCALES.length; i++) {
-                if (loc.equals(ResourceLoader.SUPPORTED_LOCALES[i])) {
+            for (int i = 0; i < LauncherMain.supportedLanguages.length; i++) {
+                if (loc.equals(LauncherMain.supportedLanguages[i])) {
                     standardLanguages.setSelectedIndex(i+1);
                     break;
                 }
@@ -472,7 +489,7 @@ public class InstallerFrame extends DraggableFrame implements IRelocalizableReso
         }
         standardLanguages.setBorder(new RoundBorder(LauncherFrame.COLOR_SCROLL_THUMB, 1, 10));
         standardLanguages.setFont(resources.getFont(ResourceLoader.FONT_OPENSANS, 14));
-        standardLanguages.setUI(new LanguageCellUI(resources));
+        standardLanguages.setUI(new LanguageCellUI(resources, new RoundedBorderFormatter(new LineBorder(Color.black, 1)), LauncherFrame.COLOR_SCROLL_TRACK, LauncherFrame.COLOR_SCROLL_THUMB));
         standardLanguages.setForeground(LauncherFrame.COLOR_WHITE_TEXT);
         standardLanguages.setBackground(LauncherFrame.COLOR_SELECTOR_BACK);
         standardLanguages.setRenderer(new LanguageCellRenderer(resources, "globe.png", LauncherFrame.COLOR_SELECTOR_BACK, LauncherFrame.COLOR_WHITE_TEXT));
@@ -554,14 +571,14 @@ public class InstallerFrame extends DraggableFrame implements IRelocalizableReso
 
         portableLanguages = new JComboBox();
         portableLanguages.addItem(new LanguageItem(ResourceLoader.DEFAULT_LOCALE, defaultLocaleText, resources));
-        for (int i = 0; i < ResourceLoader.SUPPORTED_LOCALES.length; i++) {
-            portableLanguages.addItem(new LanguageItem(resources.getCodeFromLocale(ResourceLoader.SUPPORTED_LOCALES[i]), ResourceLoader.SUPPORTED_LOCALES[i].getDisplayName(ResourceLoader.SUPPORTED_LOCALES[i]), resources.getVariant(ResourceLoader.SUPPORTED_LOCALES[i])));
+        for (int i = 0; i < LauncherMain.supportedLanguages.length; i++) {
+            portableLanguages.addItem(new LanguageItem(resources.getCodeFromLocale(LauncherMain.supportedLanguages[i]), LauncherMain.supportedLanguages[i].getDisplayName(LauncherMain.supportedLanguages[i]), resources.getVariant(LauncherMain.supportedLanguages[i])));
         }
         if (!settings.getLanguageCode().equalsIgnoreCase(ResourceLoader.DEFAULT_LOCALE)) {
             Locale loc = resources.getLocaleFromCode(settings.getLanguageCode());
 
-            for (int i = 0; i < ResourceLoader.SUPPORTED_LOCALES.length; i++) {
-                if (loc.equals(ResourceLoader.SUPPORTED_LOCALES[i])) {
+            for (int i = 0; i < LauncherMain.supportedLanguages.length; i++) {
+                if (loc.equals(LauncherMain.supportedLanguages[i])) {
                     portableLanguages.setSelectedIndex(i+1);
                     break;
                 }
@@ -569,7 +586,7 @@ public class InstallerFrame extends DraggableFrame implements IRelocalizableReso
         }
         portableLanguages.setBorder(new RoundBorder(LauncherFrame.COLOR_SCROLL_THUMB, 1, 10));
         portableLanguages.setFont(resources.getFont(ResourceLoader.FONT_OPENSANS, 14));
-        portableLanguages.setUI(new LanguageCellUI(resources));
+        portableLanguages.setUI(new LanguageCellUI(resources, new RoundedBorderFormatter(new LineBorder(Color.black, 1)), LauncherFrame.COLOR_SCROLL_TRACK, LauncherFrame.COLOR_SCROLL_THUMB));
         portableLanguages.setForeground(LauncherFrame.COLOR_WHITE_TEXT);
         portableLanguages.setBackground(LauncherFrame.COLOR_SELECTOR_BACK);
         portableLanguages.setRenderer(new LanguageCellRenderer(resources, "globe.png", LauncherFrame.COLOR_SELECTOR_BACK, LauncherFrame.COLOR_WHITE_TEXT));

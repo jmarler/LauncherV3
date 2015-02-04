@@ -1,6 +1,6 @@
 /*
  * This file is part of The Technic Launcher Version 3.
- * Copyright (C) 2013 Syndicate, LLC
+ * Copyright ©2015 Syndicate, LLC
  *
  * The Technic Launcher is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,10 +31,16 @@ public final class StartupParameters {
     private List<String> parameters = Lists.newArrayList();
     @Parameter(names = {"-console"}, description = "Shows the console window")
     private boolean console = false;
-    @Parameter(names = {"-launcher"}, description = "Starts in launcher mode (rather than update/mover)")
+    @Parameter(names = {"-launcheronly"}, description = "Starts in launcher mode (rather than update/mover)")
     private boolean launcher = false;
-    @Parameter(names = {"-mover"}, description = "Starts in mover mode (copies recently-downloaded update to originally-run package)")
+    @Parameter(names = {"-launcher"}, description = "Legacy launcher mode (indicates we should do a full update)")
+    private boolean oldLauncher = false;
+    @Parameter(names = {"-moveronly"}, description = "Starts in mover mode (copies recently-downloaded update to originally-run package)")
     private boolean mover = false;
+    @Parameter(names = {"-mover"}, description = "Legacy mover mode- used to detect old-updater clients trying to update")
+    private boolean oldMover = false;
+    @Parameter(names = {"-update"}, description = "Starts in update mode (closes after downloading updated resources)")
+    private boolean update = false;
     @Parameter(names = {"-movetarget"}, description = "The path of the originally-run package to copy to")
     private String moveTarget = null;
     @Parameter(names = {"-width"}, description = "Sets the width of the minecraft window to be fixed to this.")
@@ -45,6 +51,8 @@ public final class StartupParameters {
     private boolean fullscreen = false;
     @Parameter(names = {"-discover"}, description = "An override param for the discover URL")
     private String discover = null;
+    @Parameter(names = {"-blockReboot"}, description = "Prevent rebooting the launcher due to bad java properties.")
+    private boolean blockReboot = false;
 
     public StartupParameters(String[] args) {
         this.args = args;
@@ -87,7 +95,15 @@ public final class StartupParameters {
 
     public boolean isLauncher() { return launcher; }
 
+    public boolean isLegacyLauncher() { return oldLauncher; }
+
     public boolean isMover() { return mover; }
+
+    public boolean isLegacyMover() { return oldMover; }
+
+    public boolean isUpdate() { return update; }
+
+    public boolean isBlockReboot() { return blockReboot; }
 
     public String getMoveTarget() { return moveTarget; }
 

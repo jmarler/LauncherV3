@@ -1,6 +1,6 @@
 /*
  * This file is part of The Technic Launcher Version 3.
- * Copyright (C) 2013 Syndicate, LLC
+ * Copyright ©2015 Syndicate, LLC
  *
  * The Technic Launcher is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -55,8 +55,11 @@ public class TechnicUserStore implements IUserStore<MojangUser> {
         try {
             String json = FileUtils.readFileToString(userFile, Charset.forName("UTF-8"));
             TechnicUserStore newModel = Utils.getGson().fromJson(json, TechnicUserStore.class);
-            newModel.setUserFile(userFile);
-            return newModel;
+
+            if (newModel != null) {
+                newModel.setUserFile(userFile);
+                return newModel;
+            }
         } catch (JsonSyntaxException e) {
             Utils.getLogger().log(Level.WARNING, "Unable to load users from " + userFile);
         } catch (IOException e) {

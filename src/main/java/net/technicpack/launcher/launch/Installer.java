@@ -1,6 +1,6 @@
 /*
  * This file is part of The Technic Launcher Version 3.
- * Copyright (C) 2013 Syndicate, LLC
+ * Copyright ©2015 Syndicate, LLC
  *
  * The Technic Launcher is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -98,36 +98,57 @@ public class Installer {
         runningThread = new Thread(new Runnable() {
             @Override
             public void run() {
+                boolean everythingWorked = false;
+
                 try {
                     MojangVersion version = null;
 
                     InstallTasksQueue<MojangVersion> tasksQueue = new InstallTasksQueue<MojangVersion>(listener, mirrorStore);
                     MojangVersionBuilder versionBuilder = createVersionBuilder(pack, tasksQueue);
 
-                    if (!pack.isLocalOnly()) {
+                    if (!pack.isLocalOnly() && build != null && !build.isEmpty()) {
                         buildTasksQueue(tasksQueue, resources, pack, build, doFullInstall, versionBuilder);
 
                         version = installer.installPack(tasksQueue, pack, build);
                     } else {
-                        pack.initDirectories();
                         version = versionBuilder.buildVersionFromKey(null);
+
+                        if (version != null)
+                            pack.initDirectories();
                     }
 
                     if (doLaunch) {
-                        long memory = Memory.getClosesAvailableMemory(Memory.getMemoryFromId(settings.getMemory())).getMemoryMB();
+                        if (version == null) {
+                            throw new PackNotAvailableOfflineException(pack.getDisplayName());
+                        }
 
-                        LaunchOptions options = new LaunchOptions(pack.getDisplayName(), packIconMapper.getImageLocation(pack).getAbsolutePath(), startupParameters.getWidth(), startupParameters.getHeight(), startupParameters.getFullscreen());
-                        launcherUnhider = new LauncherUnhider(settings, frame);
-                        launcher.launch(pack, memory, options, launcherUnhider, version);
+                        long memory = Memory.getClosestAvailableMemory(Memory.getMemoryFromId(settings.getMemory()), launcher.getJavaVersions().getSelectedVersion().is64Bit()).getMemoryMB();
 
                         LaunchAction launchAction = settings.getLaunchAction();
 
                         if (launchAction == null || launchAction == LaunchAction.HIDE) {
+                            launcherUnhider = new LauncherUnhider(settings, frame);
+                        } else
+                            launcherUnhider = null;
+
+                        LaunchOptions options = new LaunchOptions(pack.getDisplayName(), packIconMapper.getImageLocation(pack).getAbsolutePath(), startupParameters.getWidth(), startupParameters.getHeight(), startupParameters.getFullscreen());
+                        launcher.launch(pack, memory, options, launcherUnhider, version);
+
+                        if (launchAction == null || launchAction == LaunchAction.HIDE) {
                             frame.setVisible(false);
+                        } else if (launchAction == LaunchAction.NOTHING) {
+                            EventQueue.invokeLater(new Runnable() {
+                                @Override
+                                public void run() {
+                                    frame.launchCompleted();
+                                }
+                            });
                         } else if (launchAction == LaunchAction.CLOSE) {
                             System.exit(0);
                         }
                     }
+
+                    everythingWorked = true;
                 } catch (InterruptedException e) {
                     //Canceled by user
                 } catch (PackNotAvailableOfflineException e) {
@@ -144,12 +165,14 @@ public class Installer {
                 } catch (IOException e) {
                     e.printStackTrace();
                 } finally {
-                    EventQueue.invokeLater(new Runnable() {
-                        @Override
-                        public void run() {
-                            frame.launchCompleted();
-                        }
-                    });
+                    if (!everythingWorked || !doLaunch) {
+                        EventQueue.invokeLater(new Runnable() {
+                            @Override
+                            public void run() {
+                                frame.launchCompleted();
+                            }
+                        });
+                    }
                 }
             }
         });
@@ -167,6 +190,10 @@ public class Installer {
     public void buildTasksQueue(InstallTasksQueue queue, ResourceLoader resources, ModpackModel modpack, String build, boolean doFullInstall, MojangVersionBuilder versionBuilder) throws CacheDeleteException, BuildInaccessibleException {
         PackInfo packInfo = modpack.getPackInfo();
         Modpack modpackData = packInfo.getModpack(build);
+
+        if (modpackData.getGameVersion() == null)
+            return;
+
         String minecraft = modpackData.getGameVersion();
         Version installedVersion = modpack.getInstalledVersion();
 

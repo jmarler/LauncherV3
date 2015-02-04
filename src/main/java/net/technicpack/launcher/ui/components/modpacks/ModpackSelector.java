@@ -1,6 +1,6 @@
 /*
  * This file is part of The Technic Launcher Version 3.
- * Copyright (C) 2013 Syndicate, LLC
+ * Copyright ©2015 Syndicate, LLC
  *
  * The Technic Launcher is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,6 +26,7 @@ import net.technicpack.launchercore.modpacks.packinfo.CombinedPackInfo;
 import net.technicpack.launchercore.modpacks.sources.IPackSource;
 import net.technicpack.launchercore.modpacks.sources.NameFilterPackSource;
 import net.technicpack.platform.IPlatformApi;
+import net.technicpack.platform.IPlatformSearchApi;
 import net.technicpack.platform.io.PlatformPackInfo;
 import net.technicpack.platform.packsources.SearchResultPackSource;
 import net.technicpack.platform.packsources.SinglePlatformSource;
@@ -63,11 +64,13 @@ public class ModpackSelector extends TintablePanel implements IModpackContainer,
     private IPackSource technicSolder;
     private ImageRepository<ModpackModel> iconRepo;
     private final IPlatformApi platformApi;
+    private final IPlatformSearchApi platformSearchApi;
     private final ISolderApi solderApi;
 
     private JPanel widgetList;
     private JScrollPane scrollPane;
     private ModpackInfoPanel modpackInfoPanel;
+    private LauncherFrame launcherFrame;
     private JTextField filterContents;
     private FindMoreWidget findMoreWidget;
 
@@ -83,13 +86,14 @@ public class ModpackSelector extends TintablePanel implements IModpackContainer,
 
     private String findMoreUrl;
 
-    public ModpackSelector(ResourceLoader resources, PackLoader packLoader, IPackSource techicSolder, ISolderApi solderApi, IPlatformApi platformApi, ImageRepository<ModpackModel> iconRepo) {
+    public ModpackSelector(ResourceLoader resources, PackLoader packLoader, IPackSource techicSolder, ISolderApi solderApi, IPlatformApi platformApi, IPlatformSearchApi platformSearchApi, ImageRepository<ModpackModel> iconRepo) {
         this.resources = resources;
         this.packLoader = packLoader;
         this.iconRepo = iconRepo;
         this.technicSolder = techicSolder;
         this.platformApi = platformApi;
         this.solderApi = solderApi;
+        this.platformSearchApi = platformSearchApi;
 
         platformRegexPattern = Pattern.compile("^https?\\:\\/\\/beta\\.technicpack\\.net\\/modpack\\/([^.]+)\\.\\d+$");
 
@@ -106,6 +110,10 @@ public class ModpackSelector extends TintablePanel implements IModpackContainer,
 
     public void setInfoPanel(ModpackInfoPanel modpackInfoPanel) {
         this.modpackInfoPanel = modpackInfoPanel;
+    }
+
+    public void setLauncherFrame(LauncherFrame launcherFrame) {
+        this.launcherFrame = launcherFrame;
     }
 
     public ModpackModel getSelectedPack() {
@@ -126,7 +134,7 @@ public class ModpackSelector extends TintablePanel implements IModpackContainer,
         header.setBackground(LauncherFrame.COLOR_PANEL);
         add(header, BorderLayout.PAGE_START);
 
-        filterContents = new WatermarkTextField(resources.getString("launcher.packselector.filter"), LauncherFrame.COLOR_DIM_TEXT);
+        filterContents = new WatermarkTextField(resources.getString("launcher.packselector.filter.hotfix"), LauncherFrame.COLOR_DIM_TEXT);
         filterContents.setFont(resources.getFont(ResourceLoader.FONT_OPENSANS, 14));
         filterContents.setBorder(BorderFactory.createEmptyBorder());
         filterContents.setColumns(20);
@@ -285,56 +293,57 @@ public class ModpackSelector extends TintablePanel implements IModpackContainer,
         if (modpackInfoPanel != null)
             modpackInfoPanel.setModpack(widget.getModpack());
 
-        final ModpackWidget refreshWidget = selectedWidget;
-        Thread thread = new Thread("Modpack redownload "+selectedWidget.getModpack().getDisplayName()) {
-            @Override
-            public void run() {
-                try {
-                    PlatformPackInfo updatedInfo = platformApi.getPlatformPackInfo(refreshWidget.getModpack().getName());
-                    PackInfo infoToUse = updatedInfo;
+            final ModpackWidget refreshWidget = selectedWidget;
+            Thread thread = new Thread("Modpack redownload " + selectedWidget.getModpack().getDisplayName()) {
+                @Override
+                public void run() {
+                    try {
+                        PlatformPackInfo updatedInfo = platformApi.getPlatformPackInfo(refreshWidget.getModpack().getName());
+                        PackInfo infoToUse = updatedInfo;
 
-                    if (updatedInfo != null && updatedInfo.hasSolder()) {
-                        try {
-                            ISolderPackApi solderPack = solderApi.getSolderPack(updatedInfo.getSolder(), updatedInfo.getName(), solderApi.getMirrorUrl(updatedInfo.getSolder()));
-                            infoToUse = new CombinedPackInfo(solderPack.getPackInfo(), updatedInfo);
-                        } catch (RestfulAPIException ex) {
-                        }
-                    }
-
-                    refreshWidget.getModpack().setPackInfo(infoToUse);
-
-                    EventQueue.invokeLater(new Runnable() {
-                        @Override
-                        public void run() {
-                            if (modpackInfoPanel != null )
-                                modpackInfoPanel.setModpackIfSame(refreshWidget.getModpack());
-
-                            if (refreshWidget.getModpack().hasRecommendedUpdate()) {
-                                refreshWidget.setToolTipText(resources.getString("launcher.packselector.updatetip"));
-                            } else {
-                                refreshWidget.setToolTipText(null);
+                        if (updatedInfo != null && updatedInfo.hasSolder()) {
+                            try {
+                                ISolderPackApi solderPack = solderApi.getSolderPack(updatedInfo.getSolder(), updatedInfo.getName(), solderApi.getMirrorUrl(updatedInfo.getSolder()));
+                                infoToUse = new CombinedPackInfo(solderPack.getPackInfo(), updatedInfo);
+                            } catch (RestfulAPIException ex) {
                             }
-
-                            iconRepo.refreshRetry(refreshWidget.getModpack());
-                            refreshWidget.updateFromPack(iconRepo.startImageJob(refreshWidget.getModpack()));
-
-                            EventQueue.invokeLater(new Runnable() {
-                                @Override
-                                public void run() {
-                                    revalidate();
-                                    repaint();
-                                }
-                            });
                         }
-                    });
 
-                } catch (RestfulAPIException ex) {
-                    ex.printStackTrace();
-                    return;
+                        if (infoToUse != null)
+                            refreshWidget.getModpack().setPackInfo(infoToUse);
+
+                        EventQueue.invokeLater(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (modpackInfoPanel != null)
+                                    modpackInfoPanel.setModpackIfSame(refreshWidget.getModpack());
+
+                                if (refreshWidget.getModpack().hasRecommendedUpdate()) {
+                                    refreshWidget.setToolTipText(resources.getString("launcher.packselector.updatetip"));
+                                } else {
+                                    refreshWidget.setToolTipText(null);
+                                }
+
+                                iconRepo.refreshRetry(refreshWidget.getModpack());
+                                refreshWidget.updateFromPack(iconRepo.startImageJob(refreshWidget.getModpack()));
+
+                                EventQueue.invokeLater(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        revalidate();
+                                        repaint();
+                                    }
+                                });
+                            }
+                        });
+
+                    } catch (RestfulAPIException ex) {
+                        ex.printStackTrace();
+                        return;
+                    }
                 }
-            }
-        };
-        thread.start();
+            };
+            thread.start();
     }
 
     protected void rebuildUI() {
@@ -419,6 +428,14 @@ public class ModpackSelector extends TintablePanel implements IModpackContainer,
         packLoader.createRepositoryLoadJob(defaultPacks, sources, null, true);
     }
 
+    public void setFilter(String text) {
+        filterContents.setText(text);
+        detectFilterChanges();
+
+        if (this.launcherFrame != null)
+            this.launcherFrame.selectTab("modpacks");
+    }
+
     protected void detectFilterChanges() {
         cancelJob();
 
@@ -464,13 +481,39 @@ public class ModpackSelector extends TintablePanel implements IModpackContainer,
     }
 
     protected String getApiLinkSlug(String searchText) {
-        String slug = getApiLinkSlugWithUrl(searchText, "http://www.technicpack.net/api/modpack/");
+        String slug = getApiLinkSlugWithUrl(searchText, "http://api.technicpack.net/modpack/");
         if (slug != null)
             return slug;
+
+        slug = getApiLinkSlugWithUrl(searchText, "http://www.technicpack.net/api/modpack/");
+        if (slug != null)
+            return slug;
+
+        slug = getApiLinkSlugWithUrl(searchText, "http://technicpack.net/api/modpack/");
+        if (slug != null)
+            return slug;
+
+        slug = getApiLinkSlugWithUrl(searchText, "api.technicpack.net/modpack/");
+        if (slug != null)
+            return slug;
+
         slug = getApiLinkSlugWithUrl(searchText, "www.technicpack.net/api/modpack/");
         if (slug != null)
             return slug;
-        return getApiLinkSlugWithUrl(searchText, "https://www.technicpack.net/api/modpack/");
+
+        slug = getApiLinkSlugWithUrl(searchText, "technicpack.net/api/modpack/");
+        if (slug != null)
+            return slug;
+
+        slug = getApiLinkSlugWithUrl(searchText, "https://api.technicpack.net/modpack/");
+        if (slug != null)
+            return slug;
+
+        slug = getApiLinkSlugWithUrl(searchText, "https://www.technicpack.net/api/modpack/");
+        if (slug != null)
+            return slug;
+
+        return getApiLinkSlugWithUrl(searchText, "https://technicpack.net/api/modpack/");
     }
 
     protected String getSiteSlug(String searchText) {
@@ -522,7 +565,7 @@ public class ModpackSelector extends TintablePanel implements IModpackContainer,
 
                     ArrayList<IPackSource> sources = new ArrayList<IPackSource>(2);
                     sources.add(new NameFilterPackSource(defaultPacks, localSearchTag));
-                    sources.add(new SearchResultPackSource(platformApi, localSearchTag));
+                    sources.add(new SearchResultPackSource(platformSearchApi, localSearchTag));
                     currentLoadJob = packLoader.createRepositoryLoadJob(ModpackSelector.this, sources, null, false);
 
                 }

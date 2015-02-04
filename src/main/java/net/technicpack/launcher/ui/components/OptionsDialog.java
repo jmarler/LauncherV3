@@ -1,6 +1,6 @@
 /*
  * This file is part of The Technic Launcher Version 3.
- * Copyright (C) 2013 Syndicate, LLC
+ * Copyright ©2015 Syndicate, LLC
  *
  * The Technic Launcher is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,9 +21,17 @@ package net.technicpack.launcher.ui.components;
 import net.technicpack.launcher.LauncherMain;
 import net.technicpack.launcher.settings.StartupParameters;
 import net.technicpack.launcher.ui.InstallerFrame;
-import net.technicpack.launcher.ui.controls.popupformatter.RoundedBorderFormatter;
+import net.technicpack.launcher.ui.listitems.javaversion.Best64BitVersionItem;
+import net.technicpack.launcher.ui.listitems.javaversion.DefaultVersionItem;
+import net.technicpack.launcher.ui.listitems.javaversion.JavaVersionItem;
+import net.technicpack.launchercore.launch.java.IJavaVersion;
+import net.technicpack.launchercore.launch.java.JavaVersionRepository;
+import net.technicpack.launchercore.launch.java.source.FileJavaSource;
+import net.technicpack.launchercore.launch.java.version.FileBasedJavaVersion;
+import net.technicpack.ui.controls.TooltipWarning;
 import net.technicpack.ui.controls.lang.LanguageCellRenderer;
 import net.technicpack.ui.controls.list.SimpleButtonComboUI;
+import net.technicpack.ui.controls.list.popupformatters.RoundedBorderFormatter;
 import net.technicpack.ui.lang.IRelocalizableResource;
 import net.technicpack.ui.lang.ResourceLoader;
 import net.technicpack.launcher.settings.TechnicSettings;
@@ -38,6 +46,7 @@ import net.technicpack.launcher.ui.listitems.StreamItem;
 import net.technicpack.launchercore.util.LaunchAction;
 import net.technicpack.utilslib.DesktopUtils;
 import net.technicpack.utilslib.Memory;
+import net.technicpack.utilslib.OperatingSystem;
 
 import javax.swing.*;
 import javax.swing.border.LineBorder;
@@ -45,6 +54,7 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.event.HyperlinkEvent;
 import javax.swing.event.HyperlinkListener;
+import javax.swing.filechooser.FileFilter;
 import javax.swing.plaf.basic.BasicComboPopup;
 import javax.swing.plaf.metal.MetalComboBoxUI;
 import javax.swing.text.MutableAttributeSet;
@@ -68,6 +78,8 @@ public class OptionsDialog extends LauncherDialog implements IRelocalizableResou
 
     private boolean hasShownStreamInfo = false;
     private ResourceLoader resources;
+    private final JavaVersionRepository javaVersions;
+    private final FileJavaSource fileJavaSource;
 
     private DocumentListener listener = new DocumentListener() {
         @Override
@@ -86,6 +98,7 @@ public class OptionsDialog extends LauncherDialog implements IRelocalizableResou
         }
     };
 
+    JComboBox versionSelect;
     JComboBox memSelect;
     JTextArea javaArgs;
     JComboBox streamSelect;
@@ -94,13 +107,17 @@ public class OptionsDialog extends LauncherDialog implements IRelocalizableResou
     JTextField installField;
     JTextField clientId;
     JCheckBox showConsole;
+    JCheckBox launchToModpacks;
     StartupParameters params;
+    Component ramWarning;
 
-    public OptionsDialog(Frame owner, TechnicSettings settings, ResourceLoader resourceLoader, StartupParameters params) {
+    public OptionsDialog(final Frame owner, final TechnicSettings settings, final ResourceLoader resourceLoader, final StartupParameters params, final JavaVersionRepository javaVersions, final FileJavaSource fileJavaSource) {
         super(owner);
 
         this.settings = settings;
         this.params = params;
+        this.javaVersions = javaVersions;
+        this.fileJavaSource = fileJavaSource;
 
         relocalize(resourceLoader);
     }
@@ -124,6 +141,72 @@ public class OptionsDialog extends LauncherDialog implements IRelocalizableResou
         settings.setShowConsole(showConsole.isSelected());
         LauncherMain.consoleFrame.setVisible(showConsole.isSelected());
         settings.save();
+    }
+
+    protected void changeLaunchToModpacks() {
+        settings.setLaunchToModpacks(launchToModpacks.isSelected());
+        settings.save();
+    }
+
+    protected void changeJavaVersion() {
+        String version = ((JavaVersionItem)versionSelect.getSelectedItem()).getVersionNumber();
+        boolean is64 = ((JavaVersionItem)versionSelect.getSelectedItem()).is64Bit();
+        javaVersions.selectVersion(version, is64);
+        settings.setJavaVersion(version);
+        settings.setJavaBitness(is64);
+        settings.save();
+        rebuildMemoryList();
+    }
+
+    protected void selectOtherVersion() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
+        final String osJavaName = new File(OperatingSystem.getJavaDir()).getName();
+        chooser.setFileFilter(new FileFilter() {
+            @Override
+            public boolean accept(File f) {
+                if (f.isDirectory())
+                    return true;
+                return (f.getName().equals(osJavaName));
+            }
+
+            @Override
+            public String getDescription() {
+                return resources.getString("launcheroptions.java.filter", osJavaName);
+            }
+        });
+
+        int result = chooser.showOpenDialog(this);
+
+
+        if (result == JFileChooser.APPROVE_OPTION) {
+            if (chooser.getSelectedFile() == null || !chooser.getSelectedFile().exists() || !chooser.getSelectedFile().canExecute()) {
+                JOptionPane.showMessageDialog(this, resources.getString("launcheroptions.java.badfile"));
+                return;
+            }
+
+            FileBasedJavaVersion chosenJava = new FileBasedJavaVersion(chooser.getSelectedFile());
+            if (!chosenJava.verify()) {
+                JOptionPane.showMessageDialog(this, resources.getString("launcheroptions.java.badfile"));
+                return;
+            }
+
+            IJavaVersion existingVersion = javaVersions.getVersion(chosenJava.getVersionNumber(), chosenJava.is64Bit());
+            if (existingVersion.getJavaPath() != null) {
+                JOptionPane.showMessageDialog(this, resources.getString("launcheroptions.java.versionexists"));
+                return;
+            }
+
+            fileJavaSource.addVersion(chosenJava);
+            javaVersions.addVersion(chosenJava);
+            javaVersions.selectVersion(chosenJava.getVersionNumber(), chosenJava.is64Bit());
+            JavaVersionItem item = new JavaVersionItem(chosenJava, resources);
+            versionSelect.addItem(item);
+            versionSelect.setSelectedItem(item);
+            settings.setJavaVersion(chosenJava.getVersionNumber());
+            settings.setJavaBitness(chosenJava.is64Bit());
+            settings.save();
+        }
     }
 
     protected void changeMemory() {
@@ -191,30 +274,53 @@ public class OptionsDialog extends LauncherDialog implements IRelocalizableResou
             }
         });
 
-        for (ActionListener listener : memSelect.getActionListeners())
-            memSelect.removeActionListener(listener);
-
-        memSelect.removeAllItems();
-        long maxMemory = Memory.getAvailableMemory();
-        for (int i = 0; i < Memory.memoryOptions.length; i++) {
-            if (Memory.memoryOptions[i].getMemoryMB() <= maxMemory)
-                memSelect.addItem(Memory.memoryOptions[i]);
-        }
-
-        Memory currentMem = Memory.getMemoryFromId(settings.getMemory());
-        Memory availableMem = Memory.getClosesAvailableMemory(currentMem);
-
-        if (currentMem.getMemoryMB() != availableMem.getMemoryMB()) {
-            settings.setMemory(availableMem.getSettingsId());
-            settings.save();
-        }
-        memSelect.setSelectedItem(availableMem);
-        memSelect.addActionListener(new ActionListener() {
+        for (ActionListener listener : launchToModpacks.getActionListeners())
+            launchToModpacks.removeActionListener(listener);
+        launchToModpacks.setSelected(settings.getLaunchToModpacks());
+        launchToModpacks.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                changeMemory();
+                changeLaunchToModpacks();
             }
         });
+
+        for (ActionListener listener : versionSelect.getActionListeners())
+            versionSelect.removeActionListener(listener);
+
+        versionSelect.removeAllItems();
+        versionSelect.addItem(new DefaultVersionItem(javaVersions.getVersion(null, true), resources));
+
+        IJavaVersion best64Bit = javaVersions.getBest64BitVersion();
+        if (best64Bit != null)
+            versionSelect.addItem(new Best64BitVersionItem(javaVersions.getVersion("64bit", true), resources));
+
+        for (IJavaVersion version : javaVersions.getVersions()) {
+            versionSelect.addItem(new JavaVersionItem(version, resources));
+        }
+
+        String settingsVersion = settings.getJavaVersion();
+        boolean settingsBitness = settings.getJavaBitness();
+        if (settingsVersion == null || settingsVersion.isEmpty() || settingsVersion.equals("default"))
+            versionSelect.setSelectedIndex(0);
+        else if (settingsVersion.equals("64bit"))
+            versionSelect.setSelectedIndex(1);
+        else {
+            for (int i = 2; i < versionSelect.getItemCount(); i++) {
+                if (((JavaVersionItem)versionSelect.getItemAt(i)).getVersionNumber().equals(settingsVersion) && ((JavaVersionItem)versionSelect.getItemAt(i)).is64Bit() == settingsBitness) {
+                    versionSelect.setSelectedIndex(i);
+                    break;
+                }
+            }
+        }
+
+        versionSelect.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                changeJavaVersion();
+            }
+        });
+
+        rebuildMemoryList();
 
         for (ActionListener listener : streamSelect.getActionListeners()) {
             streamSelect.removeActionListener(listener);
@@ -268,14 +374,14 @@ public class OptionsDialog extends LauncherDialog implements IRelocalizableResou
 
         langSelect.setRenderer(new LanguageCellRenderer(resources, null, langSelect.getBackground(), langSelect.getForeground()));
         langSelect.addItem(new LanguageItem(ResourceLoader.DEFAULT_LOCALE, defaultLocaleText, resources));
-        for (int i = 0; i < ResourceLoader.SUPPORTED_LOCALES.length; i++) {
-            langSelect.addItem(new LanguageItem(resources.getCodeFromLocale(ResourceLoader.SUPPORTED_LOCALES[i]), ResourceLoader.SUPPORTED_LOCALES[i].getDisplayName(ResourceLoader.SUPPORTED_LOCALES[i]), resources.getVariant(ResourceLoader.SUPPORTED_LOCALES[i])));
+        for (int i = 0; i < LauncherMain.supportedLanguages.length; i++) {
+            langSelect.addItem(new LanguageItem(resources.getCodeFromLocale(LauncherMain.supportedLanguages[i]), LauncherMain.supportedLanguages[i].getDisplayName(LauncherMain.supportedLanguages[i]), resources.getVariant(LauncherMain.supportedLanguages[i])));
         }
         if (!settings.getLanguageCode().equalsIgnoreCase(ResourceLoader.DEFAULT_LOCALE)) {
             Locale loc = resources.getLocaleFromCode(settings.getLanguageCode());
 
-            for (int i = 0; i < ResourceLoader.SUPPORTED_LOCALES.length; i++) {
-                if (loc.equals(ResourceLoader.SUPPORTED_LOCALES[i])) {
+            for (int i = 0; i < LauncherMain.supportedLanguages.length; i++) {
+                if (loc.equals(LauncherMain.supportedLanguages[i])) {
                     langSelect.setSelectedIndex(i+1);
                     break;
                 }
@@ -287,6 +393,85 @@ public class OptionsDialog extends LauncherDialog implements IRelocalizableResou
                 changeLanguage();
             }
         });
+    }
+
+    private void rebuildMemoryList() {
+        for (ActionListener listener : memSelect.getActionListeners())
+            memSelect.removeActionListener(listener);
+
+        Container parent = null;
+        if (memSelect.getParent() != null) {
+            parent = memSelect.getParent();
+            parent.remove(memSelect);
+
+            if (ramWarning != null) {
+                parent.remove(ramWarning);
+                ramWarning = null;
+            }
+        }
+
+        memSelect.removeAllItems();
+        long maxMemory = Memory.getAvailableMemory(javaVersions.getSelectedVersion().is64Bit());
+        for (int i = 0; i < Memory.memoryOptions.length; i++) {
+            if (Memory.memoryOptions[i].getMemoryMB() <= maxMemory)
+                memSelect.addItem(Memory.memoryOptions[i]);
+        }
+
+        Memory currentMem = Memory.getMemoryFromId(settings.getMemory());
+        Memory availableMem = Memory.getClosestAvailableMemory(currentMem, javaVersions.getSelectedVersion().is64Bit());
+
+        if (currentMem.getMemoryMB() != availableMem.getMemoryMB()) {
+            settings.setMemory(availableMem.getSettingsId());
+            settings.save();
+        }
+        memSelect.setSelectedItem(availableMem);
+        memSelect.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                changeMemory();
+            }
+        });
+
+        if (parent != null) {
+            boolean is64Bit = true;
+            boolean has64Bit = true;
+            if (javaVersions.getBest64BitVersion() == null) {
+                has64Bit = false;
+            }
+
+            if (!javaVersions.getSelectedVersion().is64Bit()) {
+                is64Bit = false;
+            }
+
+            if (is64Bit) {
+                parent.add(memSelect, new GridBagConstraints(1, 1, 6, 1, 1, 0, GridBagConstraints.CENTER, GridBagConstraints.BOTH, new Insets(8, 16, 8, 80), 0, 16));
+            } else {
+                parent.add(memSelect, new GridBagConstraints(1, 1, 5, 1, 5, 0, GridBagConstraints.CENTER, GridBagConstraints.BOTH, new Insets(8, 16, 8, 0), 0, 16));
+
+                JToolTip toolTip = new JToolTip();
+                toolTip.setBackground(LauncherFrame.COLOR_FOOTER);
+                toolTip.setForeground(LauncherFrame.COLOR_GREY_TEXT);
+                toolTip.setBorder(BorderFactory.createCompoundBorder(new LineBorder(LauncherFrame.COLOR_GREY_TEXT), BorderFactory.createEmptyBorder(5,5,5,5)));
+                toolTip.setFont(resources.getFont(ResourceLoader.FONT_OPENSANS, 14));
+                
+
+                String text = null;
+                Icon icon = null;
+
+                if (has64Bit) {
+                    text = resources.getString("launcheroptions.java.use64bit");
+                    icon = resources.getIcon("danger_icon.png");
+                } else {
+                    text = resources.getString("launcheroptions.java.get64bit");
+                    icon = resources.getIcon("warning_icon.png");
+                }
+
+                ramWarning = new TooltipWarning(icon, toolTip);
+                ((TooltipWarning)ramWarning).setToolTipText(text);
+                parent.add(ramWarning, new GridBagConstraints(6, 1, 1, 1, 0, 0, GridBagConstraints.CENTER, GridBagConstraints.NONE, new Insets(8,8,8,80),0,0));
+            }
+            repaint();
+        }
     }
 
     private void initComponents() {
@@ -548,7 +733,24 @@ public class OptionsDialog extends LauncherDialog implements IRelocalizableResou
 
         panel.add(showConsole, new GridBagConstraints(1, 5, 1, 1, 0, 0, GridBagConstraints.CENTER, GridBagConstraints.NONE, new Insets(16, 16, 0, 0), 0, 0));
 
-        panel.add(Box.createGlue(), new GridBagConstraints(0, 6, 5, 1, 1, 1, GridBagConstraints.CENTER, GridBagConstraints.BOTH, new Insets(0,0,0,0), 0, 0));
+        //Add launch to modpacks
+        JLabel launchToModpacksField = new JLabel(resources.getString("launcheroptions.general.modpacktab"));
+        launchToModpacksField.setFont(resources.getFont(ResourceLoader.FONT_OPENSANS, 16));
+        launchToModpacksField.setForeground(LauncherFrame.COLOR_WHITE_TEXT);
+        panel.add(launchToModpacksField, new GridBagConstraints(0,6,1,1,0,0,GridBagConstraints.EAST,GridBagConstraints.NONE,new Insets(10,40,0,0),0,0));
+
+        launchToModpacks = new JCheckBox("", false);
+        launchToModpacks.setOpaque(false);
+        launchToModpacks.setHorizontalAlignment(SwingConstants.RIGHT);
+        launchToModpacks.setBorder(BorderFactory.createEmptyBorder());
+        launchToModpacks.setIconTextGap(0);
+        launchToModpacks.setSelectedIcon(resources.getIcon("checkbox_closed.png"));
+        launchToModpacks.setIcon(resources.getIcon("checkbox_open.png"));
+        launchToModpacks.setFocusPainted(false);
+
+        panel.add(launchToModpacks, new GridBagConstraints(1, 6, 1, 1, 0, 0, GridBagConstraints.CENTER, GridBagConstraints.NONE, new Insets(16, 16 ,0, 0), 0,0));
+
+        panel.add(Box.createGlue(), new GridBagConstraints(0, 7, 5, 1, 1, 1, GridBagConstraints.CENTER, GridBagConstraints.BOTH, new Insets(0,0,0,0), 0, 0));
 
         //Open logs button
         RoundedButton openLogs = new RoundedButton(resources.getString("launcheroptions.general.logs"));
@@ -563,16 +765,58 @@ public class OptionsDialog extends LauncherDialog implements IRelocalizableResou
                 openLogs();
             }
         });
-        panel.add(openLogs, new GridBagConstraints(0, 7, 1, 1, 0, 0, GridBagConstraints.WEST, GridBagConstraints.NONE, new Insets(0, 10, 10, 0), 0, 0));
+        panel.add(openLogs, new GridBagConstraints(0, 8, 1, 1, 0, 0, GridBagConstraints.WEST, GridBagConstraints.NONE, new Insets(0, 10, 10, 0), 0, 0));
     }
 
     private void setupJavaOptionsPanel(JPanel panel) {
         panel.setLayout(new GridBagLayout());
 
+        JLabel versionLabel = new JLabel(resources.getString("launcheroptions.java.version"));
+        versionLabel.setFont(resources.getFont(ResourceLoader.FONT_OPENSANS, 16));
+        versionLabel.setForeground(LauncherFrame.COLOR_WHITE_TEXT);
+        panel.add(versionLabel, new GridBagConstraints(0, 0, 1, 1, 0, 0, GridBagConstraints.EAST, GridBagConstraints.NONE, new Insets(0, 60, 0, 0), 0, 0));
+
+        versionSelect = new JComboBox();
+
+        if (System.getProperty("os.name").toLowerCase(Locale.ENGLISH).contains("mac")) {
+            versionSelect.setUI(new MetalComboBoxUI());
+        }
+
+        versionSelect.setFont(resources.getFont(ResourceLoader.FONT_OPENSANS, 16));
+        versionSelect.setEditable(false);
+        versionSelect.setBorder(new RoundBorder(LauncherFrame.COLOR_BUTTON_BLUE, 1, 10));
+        versionSelect.setForeground(LauncherFrame.COLOR_BUTTON_BLUE);
+        versionSelect.setBackground(LauncherFrame.COLOR_FORMELEMENT_INTERNAL);
+        SimpleButtonComboUI ui = new SimpleButtonComboUI(new RoundedBorderFormatter(new RoundBorder(LauncherFrame.COLOR_BUTTON_BLUE, 1, 0)), resources, LauncherFrame.COLOR_SCROLL_TRACK, LauncherFrame.COLOR_SCROLL_THUMB);
+        versionSelect.setUI(ui);
+        versionSelect.setFocusable(false);
+
+        Object child = versionSelect.getAccessibleContext().getAccessibleChild(0);
+        BasicComboPopup popup = (BasicComboPopup)child;
+        JList list = popup.getList();
+        list.setSelectionForeground(LauncherFrame.COLOR_BUTTON_BLUE);
+        list.setSelectionBackground(LauncherFrame.COLOR_FORMELEMENT_INTERNAL);
+        list.setBackground(LauncherFrame.COLOR_CENTRAL_BACK_OPAQUE);
+
+        panel.add(versionSelect, new GridBagConstraints(1, 0, 1, 1, 0, 0, GridBagConstraints.CENTER, GridBagConstraints.BOTH, new Insets(8, 16, 8, 8), 0, 16));
+
+        RoundedButton otherVersionButton = new RoundedButton(resources.getString("launcheroptions.java.otherversion"));
+        otherVersionButton.setFont(resources.getFont(ResourceLoader.FONT_OPENSANS, 16));
+        otherVersionButton.setContentAreaFilled(false);
+        otherVersionButton.setForeground(LauncherFrame.COLOR_BUTTON_BLUE);
+        otherVersionButton.setHoverForeground(LauncherFrame.COLOR_BLUE);
+        otherVersionButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                selectOtherVersion();
+            }
+        });
+        panel.add(otherVersionButton, new GridBagConstraints(2, 0, 5, 1, 2, 0, GridBagConstraints.CENTER, GridBagConstraints.BOTH, new Insets(8, 8, 8, 80), 0, 0));
+
         JLabel memLabel = new JLabel(resources.getString("launcheroptions.java.memory"));
         memLabel.setFont(resources.getFont(ResourceLoader.FONT_OPENSANS, 16));
         memLabel.setForeground(LauncherFrame.COLOR_WHITE_TEXT);
-        panel.add(memLabel, new GridBagConstraints(0, 0, 1, 1, 0, 0, GridBagConstraints.EAST, GridBagConstraints.NONE, new Insets(0, 60, 0, 0), 0, 0));
+        panel.add(memLabel, new GridBagConstraints(0, 1, 1, 1, 0, 0, GridBagConstraints.EAST, GridBagConstraints.NONE, new Insets(0, 60, 0, 0), 0, 0));
 
         memSelect = new JComboBox();
 
@@ -585,23 +829,22 @@ public class OptionsDialog extends LauncherDialog implements IRelocalizableResou
         memSelect.setBorder(new RoundBorder(LauncherFrame.COLOR_BUTTON_BLUE, 1, 10));
         memSelect.setForeground(LauncherFrame.COLOR_BUTTON_BLUE);
         memSelect.setBackground(LauncherFrame.COLOR_FORMELEMENT_INTERNAL);
-        SimpleButtonComboUI ui = new SimpleButtonComboUI(new RoundedBorderFormatter(new RoundBorder(LauncherFrame.COLOR_BUTTON_BLUE, 1, 0)), resources, LauncherFrame.COLOR_SCROLL_TRACK, LauncherFrame.COLOR_SCROLL_THUMB);
+         ui = new SimpleButtonComboUI(new RoundedBorderFormatter(new RoundBorder(LauncherFrame.COLOR_BUTTON_BLUE, 1, 0)), resources, LauncherFrame.COLOR_SCROLL_TRACK, LauncherFrame.COLOR_SCROLL_THUMB);
         memSelect.setUI(ui);
         memSelect.setFocusable(false);
 
-        Object child = memSelect.getAccessibleContext().getAccessibleChild(0);
-        BasicComboPopup popup = (BasicComboPopup)child;
-        JList list = popup.getList();
+        child = memSelect.getAccessibleContext().getAccessibleChild(0);
+        popup = (BasicComboPopup)child;
+        list = popup.getList();
         list.setSelectionForeground(LauncherFrame.COLOR_BUTTON_BLUE);
         list.setSelectionBackground(LauncherFrame.COLOR_FORMELEMENT_INTERNAL);
         list.setBackground(LauncherFrame.COLOR_CENTRAL_BACK_OPAQUE);
-
-        panel.add(memSelect, new GridBagConstraints(1, 0, 2, 1, 1, 0, GridBagConstraints.CENTER, GridBagConstraints.BOTH, new Insets(8, 16, 8, 80), 0, 16));
+        panel.add(memSelect, new GridBagConstraints(1, 1, 6, 1, 1, 0, GridBagConstraints.CENTER, GridBagConstraints.BOTH, new Insets(8, 16, 8, 80), 0, 16));
 
         JLabel argsLabel = new JLabel(resources.getString("launcheroptions.java.arguments"));
         argsLabel.setFont(resources.getFont(ResourceLoader.FONT_OPENSANS, 16));
         argsLabel.setForeground(LauncherFrame.COLOR_WHITE_TEXT);
-        panel.add(argsLabel, new GridBagConstraints(0, 1, 1, 1, 0, 0, GridBagConstraints.EAST, GridBagConstraints.NONE, new Insets(0, 60, 0, 0), 0, 0));
+        panel.add(argsLabel, new GridBagConstraints(0, 2, 1, 1, 0, 0, GridBagConstraints.EAST, GridBagConstraints.NONE, new Insets(0, 60, 0, 0), 0, 0));
 
         javaArgs = new JTextArea(32, 4);
         javaArgs.setFont(resources.getFont(ResourceLoader.FONT_OPENSANS, 16));
@@ -615,9 +858,9 @@ public class OptionsDialog extends LauncherDialog implements IRelocalizableResou
         javaArgs.setSelectionColor(LauncherFrame.COLOR_BUTTON_BLUE);
         javaArgs.setSelectedTextColor(LauncherFrame.COLOR_FORMELEMENT_INTERNAL);
 
-        panel.add(javaArgs, new GridBagConstraints(1, 1, 1, 2, 1, 0, GridBagConstraints.CENTER, GridBagConstraints.BOTH, new Insets(8, 16, 64, 80), 0, 0));
+        panel.add(javaArgs, new GridBagConstraints(1, 2, 6, 2, 0, 0, GridBagConstraints.CENTER, GridBagConstraints.BOTH, new Insets(8, 16, 64, 80), 0, 0));
 
-        panel.add(Box.createGlue(), new GridBagConstraints(0, 2, 2, 1, 1, 1, GridBagConstraints.CENTER, GridBagConstraints.BOTH, new Insets(0,0,0,0),0,0));
+        panel.add(Box.createGlue(), new GridBagConstraints(4, 3, 1, 1, 1, 1, GridBagConstraints.CENTER, GridBagConstraints.BOTH, new Insets(0,0,0,0),0,0));
     }
 
     @Override

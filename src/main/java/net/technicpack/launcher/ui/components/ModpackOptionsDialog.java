@@ -1,6 +1,6 @@
 /*
  * This file is part of The Technic Launcher Version 3.
- * Copyright (C) 2013 Syndicate, LLC
+ * Copyright ©2015 Syndicate, LLC
  *
  * The Technic Launcher is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,7 +19,6 @@
 package net.technicpack.launcher.ui.components;
 
 import net.technicpack.launcher.ui.LauncherFrame;
-import net.technicpack.launcher.ui.controls.popupformatter.RoundedBorderFormatter;
 import net.technicpack.launcher.ui.listitems.PackBuildItem;
 import net.technicpack.launchercore.install.LauncherDirectories;
 import net.technicpack.launchercore.modpacks.InstalledPack;
@@ -31,6 +30,7 @@ import net.technicpack.ui.controls.RoundedButton;
 import net.technicpack.ui.controls.borders.RoundBorder;
 import net.technicpack.ui.controls.list.AdvancedCellRenderer;
 import net.technicpack.ui.controls.list.SimpleButtonComboUI;
+import net.technicpack.ui.controls.list.popupformatters.RoundedBorderFormatter;
 import net.technicpack.ui.controls.tabs.SimpleTabPane;
 import net.technicpack.ui.lang.ResourceLoader;
 import net.technicpack.utilslib.DesktopUtils;
@@ -98,8 +98,13 @@ public class ModpackOptionsDialog extends LauncherDialog {
     }
 
     protected void selectManual() {
+        if (manualBuildList.getItemCount() == 0)
+            return;
+
         if (manualBuildList.getSelectedItem() == null)
             manualBuildList.setSelectedItem(new PackBuildItem(modpack.getBuild(), resources, modpack));
+        if (manualBuildList.getSelectedItem() == null)
+            manualBuildList.setSelectedItem(new PackBuildItem(modpack.getRecommendedBuild(), resources, modpack));
 
         this.modpack.setBuild(((PackBuildItem)manualBuildList.getSelectedItem()).getBuildNumber());
         manualBuildList.setBorder(new RoundBorder(LauncherFrame.COLOR_BUTTON_BLUE, 1, 10));
@@ -396,6 +401,16 @@ public class ModpackOptionsDialog extends LauncherDialog {
 
         for (String build : modpack.getBuilds()) {
             manualBuildList.insertItemAt(new PackBuildItem(build, resources, modpack), 0);
+        }
+
+        if (manualBuildList.getItemCount() == 0) {
+            recommended.setEnabled(false);
+            latest.setEnabled(false);
+            manual.setEnabled(false);
+            recommended.setSelected(true);
+            manualBuildList.addItem(new PackBuildItem(resources.getString("modpackoptions.version.missing"), resources, modpack));
+            manualBuildList.setEnabled(false);
+            return;
         }
 
         String build = modpack.getBuild();

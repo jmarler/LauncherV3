@@ -1,6 +1,6 @@
 /*
  * This file is part of The Technic Launcher Version 3.
- * Copyright (C) 2013 Syndicate, LLC
+ * Copyright ©2015 Syndicate, LLC
  *
  * The Technic Launcher is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,6 +15,7 @@
  * You should have received a copy of the GNU General Public License
  * along with the Technic Launcher.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 package net.technicpack.launcher.ui.listitems;
 
 import net.technicpack.launchercore.util.LaunchAction;

@@ -1,6 +1,6 @@
 /*
  * This file is part of The Technic Launcher Version 3.
- * Copyright (C) 2013 Syndicate, LLC
+ * Copyright ©2015 Syndicate, LLC
  *
  * The Technic Launcher is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -137,8 +137,10 @@ public class NewsInfoPanel extends JPanel implements PropertyChangeListener {
         newsText.addHyperlinkListener(new HyperlinkListener() {
             @Override
             public void hyperlinkUpdate(HyperlinkEvent e) {
-                if (e.getEventType() == HyperlinkEvent.EventType.ACTIVATED)
-                    DesktopUtils.browseUrl(e.getURL().toString());
+                if (e.getEventType() == HyperlinkEvent.EventType.ACTIVATED) {
+                    if (e.getURL() != null)
+                        DesktopUtils.browseUrl(e.getURL().toString());
+                }
             }
         });
         newsText.addComponentListener(new ComponentListener() {

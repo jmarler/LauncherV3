@@ -1,6 +1,6 @@
 /*
  * This file is part of The Technic Launcher Version 3.
- * Copyright (C) 2013 Syndicate, LLC
+ * Copyright ©2015 Syndicate, LLC
  *
  * The Technic Launcher is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -85,7 +85,7 @@ public class UserWidget extends JPanel implements IImageJobListener<MojangUser> 
         userName = new JLabel("");
         userName.setForeground(LauncherFrame.COLOR_WHITE_TEXT);
         userName.setBackground(Color.white);
-        userName.setFont(resources.getFont(ResourceLoader.FONT_RALEWAY, 15, Font.BOLD));
+        userName.setFont(resources.getFont(ResourceLoader.FONT_RALEWAY, 17, Font.BOLD));
         this.add(userName);
 
         staticText = new JLabel(postText);

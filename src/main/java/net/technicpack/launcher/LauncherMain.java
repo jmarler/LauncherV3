@@ -1,6 +1,6 @@
 /*
  * This file is part of The Technic Launcher Version 3.
- * Copyright (C) 2013 Syndicate, LLC
+ * Copyright ©2015 Syndicate, LLC
  *
  * The Technic Launcher is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,6 +21,7 @@ package net.technicpack.launcher;
 import com.beust.jcommander.JCommander;
 import net.technicpack.autoupdate.Relauncher;
 import net.technicpack.autoupdate.http.HttpUpdateStream;
+import net.technicpack.launcher.autoupdate.TechnicRelauncher;
 import net.technicpack.launcher.io.*;
 import net.technicpack.launcher.settings.migration.IMigrator;
 import net.technicpack.launcher.settings.migration.InitialV3Migrator;
@@ -29,13 +30,19 @@ import net.technicpack.launcher.ui.components.discover.DiscoverInfoPanel;
 import net.technicpack.launcher.ui.components.modpacks.ModpackSelector;
 import net.technicpack.launchercore.auth.IAuthListener;
 import net.technicpack.launchercore.auth.IUserStore;
+import net.technicpack.launchercore.exception.DownloadException;
 import net.technicpack.launchercore.image.face.CrafatarFaceImageStore;
+import net.technicpack.launchercore.launch.java.JavaVersionRepository;
+import net.technicpack.launchercore.launch.java.source.FileJavaSource;
+import net.technicpack.launchercore.launch.java.source.InstalledJavaSource;
 import net.technicpack.launchercore.logging.BuildLogFormatter;
 import net.technicpack.launchercore.logging.RotatingFileHandler;
 import net.technicpack.launchercore.modpacks.PackLoader;
 import net.technicpack.launchercore.modpacks.sources.IAuthoritativePackSource;
 import net.technicpack.minecraftcore.mojang.auth.MojangUser;
+import net.technicpack.platform.IPlatformSearchApi;
 import net.technicpack.platform.cache.ModpackCachePlatformApi;
+import net.technicpack.platform.http.HttpPlatformSearchApi;
 import net.technicpack.solder.cache.CachedSolderApi;
 import net.technicpack.ui.components.Console;
 import net.technicpack.ui.components.ConsoleFrame;
@@ -53,7 +60,6 @@ import net.technicpack.launchercore.auth.IUserType;
 import net.technicpack.minecraftcore.mojang.auth.AuthenticationService;
 import net.technicpack.launchercore.auth.UserModel;
 import net.technicpack.launchercore.image.ImageRepository;
-import net.technicpack.launchercore.image.face.MinotarFaceImageStore;
 import net.technicpack.launchercore.image.face.WebAvatarImageStore;
 import net.technicpack.launchercore.install.ModpackInstaller;
 import net.technicpack.minecraftcore.launch.MinecraftLauncher;
@@ -65,7 +71,6 @@ import net.technicpack.launchercore.modpacks.resources.resourcetype.IModpackReso
 import net.technicpack.launchercore.modpacks.resources.resourcetype.IconResourceType;
 import net.technicpack.launchercore.modpacks.resources.resourcetype.LogoResourceType;
 import net.technicpack.launchercore.modpacks.sources.IInstalledPackRepository;
-import net.technicpack.launchercore.modpacks.sources.IPackSource;
 import net.technicpack.launchercore.install.LauncherDirectories;
 import net.technicpack.launchercore.mirror.MirrorStore;
 import net.technicpack.launchercore.mirror.secure.rest.JsonWebSecureMirror;
@@ -77,15 +82,17 @@ import net.technicpack.solder.ISolderApi;
 import net.technicpack.solder.SolderPackSource;
 import net.technicpack.solder.http.HttpSolderApi;
 import net.technicpack.utilslib.Utils;
-import org.apache.commons.lang3.StringUtils;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.io.File;
+import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UnsupportedEncodingException;
-import java.lang.reflect.Array;
 import java.util.ArrayList;
+import java.util.Locale;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -94,12 +101,27 @@ public class LauncherMain {
 
     public static ConsoleFrame consoleFrame;
 
+    public static Locale[] supportedLanguages = new Locale[] {
+            Locale.ENGLISH,
+            new Locale("pt","BR"),
+            new Locale("pt","PT"),
+            new Locale("cs"),
+            Locale.GERMAN,
+            Locale.FRENCH,
+            Locale.ITALIAN,
+            new Locale("hu"),
+            Locale.CHINA,
+            Locale.TAIWAN
+    };
+
     public static void main(String[] args) {
         try {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
         } catch (Exception ex) {
             Utils.getLogger().log(Level.SEVERE, ex.getMessage(), ex);
         }
+
+        ToolTipManager.sharedInstance().setDismissDelay(Integer.MAX_VALUE);
 
         StartupParameters params = new StartupParameters(args);
         try {
@@ -108,17 +130,17 @@ public class LauncherMain {
             ex.printStackTrace();
         }
 
-        Relauncher launcher = new Relauncher(new HttpUpdateStream("http://www.technicpack.net/api/launcher/version/"));
         TechnicSettings settings = null;
 
         try {
-            settings = SettingsFactory.buildSettingsObject(launcher.getRunningPath(LauncherMain.class), params.isMover());
+            settings = SettingsFactory.buildSettingsObject(Relauncher.getRunningPath(LauncherMain.class), params.isMover());
         } catch (UnsupportedEncodingException ex) {
             ex.printStackTrace();
         }
 
         if (settings == null) {
-            ResourceLoader installerResources = new ResourceLoader("net","technicpack","launcher","resources");
+            ResourceLoader installerResources = new ResourceLoader(null, "net","technicpack","launcher","resources");
+            installerResources.setSupportedLanguages(supportedLanguages);
             installerResources.setLocale(ResourceLoader.DEFAULT_LOCALE);
             InstallerFrame dialog = new InstallerFrame(installerResources, params);
             dialog.setVisible(true);
@@ -126,29 +148,32 @@ public class LauncherMain {
         }
 
         LauncherDirectories directories = new TechnicLauncherDirectories(settings.getTechnicRoot());
-        ResourceLoader resources = new ResourceLoader("net","technicpack","launcher","resources");
+        ResourceLoader resources = new ResourceLoader(directories, "net","technicpack","launcher","resources");
+        resources.setSupportedLanguages(supportedLanguages);
         resources.setLocale(settings.getLanguageCode());
 
         setupLogging(directories, resources);
 
-        boolean needsReboot = false;
+        String launcherBuild = resources.getLauncherBuild();
+        int build = -1;
 
-        if (System.getProperty("awt.useSystemAAFontSettings") == null || !System.getProperty("awt.useSystemAAFontSettings").equals("lcd"))
-            needsReboot = true;
-        else if (!Boolean.parseBoolean(System.getProperty("java.net.preferIPv4Stack")))
-            needsReboot = true;
+        try {
+            build = Integer.parseInt(launcherBuild);
+        } catch (NumberFormatException ex) {
+            //This is probably a debug build or something, build number is invalid
+        }
 
-        if (params.isLauncher())
-            startLauncher(settings, params, directories, resources);
-        else if (params.isMover())
-            startMover(params, launcher);
-        else if (needsReboot && StringUtils.isNumeric(resources.getLauncherBuild())) {
-            // ^^^^^
-            //The debugger can't really relaunch so double check the build number to make sure we're operating in a valid environment
-            launcher.launch(null, LauncherMain.class, params.getArgs());
-            return;
-        } else {
-            updateAndRelaunch(params, directories, resources, settings, launcher);
+        Relauncher launcher = new TechnicRelauncher(new HttpUpdateStream("http://api.technicpack.net/launcher/"), settings.getBuildStream()+"4", build, directories, resources, params);
+
+        try {
+            if (launcher.runAutoUpdater())
+                startLauncher(settings, params, directories, resources);
+        } catch (InterruptedException e) {
+            //Canceled by user
+        } catch (DownloadException e) {
+            //JOptionPane.showMessageDialog(null, resources.getString("launcher.updateerror.download", pack.getDisplayName(), e.getMessage()), resources.getString("launcher.installerror.title"), JOptionPane.WARNING_MESSAGE);
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 
@@ -200,15 +225,23 @@ public class LauncherMain {
         });
     }
 
-    private static void startLauncher(TechnicSettings settings, StartupParameters startupParameters, LauncherDirectories directories, ResourceLoader resources) {
+    private static void startLauncher(final TechnicSettings settings, StartupParameters startupParameters, LauncherDirectories directories, ResourceLoader resources) {
         UIManager.put( "ComboBox.disabledBackground", LauncherFrame.COLOR_FORMELEMENT_INTERNAL );
         UIManager.put( "ComboBox.disabledForeground", LauncherFrame.COLOR_GREY_TEXT );
         System.setProperty("xr.load.xml-reader",  "org.ccil.cowan.tagsoup.Parser");
 
         final SplashScreen splash = new SplashScreen(resources.getImage("launch_splash.png"), 0);
+        Color bg = LauncherFrame.COLOR_FORMELEMENT_INTERNAL;
+        splash.getContentPane().setBackground(new Color (bg.getRed(),bg.getGreen(),bg.getBlue(),255));
         splash.pack();
         splash.setLocationRelativeTo(null);
         splash.setVisible(true);
+
+        JavaVersionRepository javaVersions = new JavaVersionRepository();
+        (new InstalledJavaSource()).enumerateVersions(javaVersions);
+        FileJavaSource javaVersionFile = FileJavaSource.load(new File(settings.getTechnicRoot(), "javaVersions.json"));
+        javaVersionFile.enumerateVersions(javaVersions);
+        javaVersions.selectVersion(settings.getJavaVersion(), settings.getJavaBitness());
 
         IUserStore<MojangUser> users = TechnicUserStore.load(new File(directories.getLauncherDirectory(),"users.json"));
         UserModel userModel = new UserModel(users, new AuthenticationService());
@@ -231,9 +264,10 @@ public class LauncherMain {
 
         HttpSolderApi httpSolder = new HttpSolderApi(settings.getClientId(), userModel);
         ISolderApi solder = new CachedSolderApi(directories, httpSolder, 60 * 60);
-        HttpPlatformApi httpPlatform = new HttpPlatformApi("http://www.technicpack.net/", mirrorStore);
+        HttpPlatformApi httpPlatform = new HttpPlatformApi("http://api.technicpack.net/", mirrorStore);
 
         IPlatformApi platform = new ModpackCachePlatformApi(httpPlatform, 60 * 60, directories);
+        IPlatformSearchApi platformSearch = new HttpPlatformSearchApi("http://api.technicpack.net/");
 
         IInstalledPackRepository packStore = TechnicInstalledPackStore.load(new File(directories.getLauncherDirectory(), "installedPacks"));
         IAuthoritativePackSource packInfoRepository = new PlatformPackInfoRepository(platform, solder);
@@ -243,20 +277,31 @@ public class LauncherMain {
         SettingsFactory.migrateSettings(settings, packStore, directories, users, migrators);
 
         PackLoader packList = new PackLoader(directories, packStore, packInfoRepository);
-        ModpackSelector selector = new ModpackSelector(resources, packList, new SolderPackSource("http://solder.technicpack.net/api/", solder, true), solder, platform, iconRepo);
+        ModpackSelector selector = new ModpackSelector(resources, packList, new SolderPackSource("http://solder.technicpack.net/api/", solder, true), solder, platform, platformSearch, iconRepo);
         selector.setBorder(BorderFactory.createEmptyBorder());
         userModel.addAuthListener(selector);
 
         resources.registerResource(selector);
 
-        DiscoverInfoPanel discoverInfoPanel = new DiscoverInfoPanel(resources, startupParameters.getDiscoverUrl(), platform, splash);
+        DiscoverInfoPanel discoverInfoPanel = new DiscoverInfoPanel(resources, startupParameters.getDiscoverUrl(), platform, directories, selector);
 
-        MinecraftLauncher launcher = new MinecraftLauncher(platform, directories, userModel, settings.getClientId());
+        MinecraftLauncher launcher = new MinecraftLauncher(platform, directories, userModel, settings.getClientId(), javaVersions);
         ModpackInstaller modpackInstaller = new ModpackInstaller(platform, settings.getClientId());
         Installer installer = new Installer(startupParameters, mirrorStore, directories, modpackInstaller, launcher, settings, iconMapper);
 
-        LauncherFrame frame = new LauncherFrame(resources, skinRepo, userModel, settings, selector, iconRepo, logoRepo, backgroundRepo, installer, avatarRepo, platform, directories, packStore, startupParameters, discoverInfoPanel);
+        final LauncherFrame frame = new LauncherFrame(resources, skinRepo, userModel, settings, selector, iconRepo, logoRepo, backgroundRepo, installer, avatarRepo, platform, directories, packStore, startupParameters, discoverInfoPanel, javaVersions, javaVersionFile);
         userModel.addAuthListener(frame);
+
+        ActionListener listener = new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                splash.dispose();
+                if (settings.getLaunchToModpacks())
+                    frame.selectTab("modpacks");
+            }
+        };
+
+        discoverInfoPanel.setLoadListener(listener);
 
         LoginFrame login = new LoginFrame(resources, settings, userModel, skinRepo);
         userModel.addAuthListener(login);
@@ -269,71 +314,5 @@ public class LauncherMain {
         });
 
         userModel.initAuth();
-    }
-
-    private static void startMover(StartupParameters params, Relauncher relauncher) {
-        try {
-            relauncher.replacePackage(LauncherMain.class, params.getMoveTarget());
-        } catch (UnsupportedEncodingException ex) {
-            Utils.getLogger().log(Level.SEVERE, "Error attempting to copy downloaded package: ", ex);
-            return;
-        }
-
-        String[] args = relauncher.buildLauncherArgs(relauncher.buildLauncherArgs(params.getArgs()));
-        relauncher.launch(params.getMoveTarget(), LauncherMain.class, args);
-    }
-
-    private static void updateAndRelaunch(StartupParameters params, LauncherDirectories directories, ResourceLoader resources, TechnicSettings settings, Relauncher relauncher) {
-        String launcherBuild = resources.getLauncherBuild();
-        int build = -1;
-
-        try {
-            build = Integer.parseInt(launcherBuild);
-        } catch (NumberFormatException ex) {
-            //This is probably a debug build or something, build number is invalid
-        }
-
-        if (build < 1) {
-            //We're in debug mode do not relaunch
-            startLauncher(settings, params, directories, resources);
-            return;
-        }
-
-        //In order to allow the old launcher to update & maintain backward compatibility we're keeping the old
-        //stream pages live, and appending a "4" to the new streams.  So "stable" in the settings file means we
-        //pull from "stable4"
-        String url = relauncher.getUpdateUrl(settings.getBuildStream()+"4", build, LauncherMain.class);
-
-        String[] args;
-        if (url == null) {
-            startLauncher(settings, params, directories, resources);
-            return;
-        }
-
-        SplashScreen screen = new SplashScreen(resources.getImage("launch_splash.png"), 30);
-        screen.getProgressBar().setForeground(Color.white);
-        screen.getProgressBar().setBackground(LauncherFrame.COLOR_GREEN);
-        screen.getProgressBar().setBackFill(LauncherFrame.COLOR_CENTRAL_BACK_OPAQUE);
-        screen.getProgressBar().setFont(resources.getFont(ResourceLoader.FONT_OPENSANS, 12));
-        screen.pack();
-        screen.setLocationRelativeTo(null);
-        screen.setVisible(true);
-
-        String tempPath = relauncher.downloadUpdate(url, directories, resources.getString("updater.downloading"), screen.getProgressBar());
-
-        if (tempPath == null) {
-            Utils.getLogger().severe("The launcher update failed to download.");
-            screen.dispose();
-            startLauncher(settings, params, directories, resources);
-            return;
-        }
-
-        try {
-            args = relauncher.buildMoverArgs(LauncherMain.class, params.getArgs());
-        } catch (UnsupportedEncodingException ex) {
-            Utils.getLogger().log(Level.SEVERE, "Error attempting to launch mover mode: ", ex);
-            return;
-        }
-        relauncher.launch(tempPath, LauncherMain.class, args);
     }
 }
